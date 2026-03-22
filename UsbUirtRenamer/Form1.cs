@@ -38,16 +38,22 @@ namespace UsbUirtRenamer
         }
 
         private void BtnRefresh_Click(object? sender, EventArgs e) => RefreshDevices();
-        private void BtnRename_Click(object? sender, EventArgs e) => RenameSelected(txtNewName.Text.Trim());
 
         private void LvDevices_DoubleClick(object? sender, EventArgs e)
         {
             if (lvDevices.SelectedItems.Count == 0)
                 return;
+
             var current = lvDevices.SelectedItems[0].SubItems[lvDevices.Columns.IndexOf(colFriendly)].Text;
-            string? newName = Prompt($"New name for:\n{current}", current);
-            if (!string.IsNullOrWhiteSpace(newName))
-                RenameSelected(newName!);
+            int? currentUnit = UnitFromEvalishName(current);
+            string defaultVal = currentUnit?.ToString() ?? "";
+
+            string? newNumber = Prompt(
+                $"Current: {current}\n\nEnter new USB-UIRT unit number\n(device will be named USB-UIRT-N):",
+                defaultVal);
+
+            if (!string.IsNullOrWhiteSpace(newNumber))
+                RenameSelected(newNumber!);
         }
 
         private void BtnElevate_Click(object? sender, EventArgs e)
@@ -209,57 +215,47 @@ namespace UsbUirtRenamer
 
         private void RenameSelected(string newName)
         {
-            if (lvDevices.SelectedItems.Count == 0)
-            {
-                MessageBox.Show(this, "Please select a device in the list.", "No selection",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
             if (string.IsNullOrWhiteSpace(newName))
             {
-                MessageBox.Show(this, "Enter a new friendly name (or double-click a device to prompt).",
-                    "Missing name", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            if (!Program.IsAdministrator())
-            {
-                MessageBox.Show(this, "Renaming requires Administrator. Click 'Restart as Admin…' and try again.",
-                    "Elevation required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Enter a USB-UIRT unit number (e.g. '2' for USB-UIRT-2).",
+                    "Missing input", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            string? instanceId = lvDevices.SelectedItems[0].Tag as string;
-            if (string.IsNullOrEmpty(instanceId))
+            if (!TryParseUnitNumber(newName, out int unitNumber))
             {
-                MessageBox.Show(this, "Device ID not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this,
+                    "Please enter a valid USB-UIRT unit number.\n\n" +
+                    "Examples: '2', 'USB-UIRT-2', 'USB-UIRT2'\n" +
+                    "The device will be renamed to 'USB-UIRT-{number}'.",
+                    "Invalid input", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             try
             {
                 Cursor = Cursors.WaitCursor;
-                sslStatus.Text = "Renaming device…";
+                sslStatus.Text = "Renaming device via uurename.exe…";
 
-                bool okFriendly = SetDevPropByInstanceId(instanceId, SPDRP_FRIENDLYNAME, newName);
-                bool okDesc     = SetDevPropByInstanceId(instanceId, SPDRP_DEVICEDESC, newName);
+                string output = RunUurename(unitNumber);
 
-                try
-                { RestartDeviceByInstanceId(instanceId); }
-                catch { /* ignore */ }
+                if (output.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
+                {
+                    sslStatus.Text = "Rename failed.";
+                    MessageBox.Show(this, $"uurename.exe reported an error:\n\n{output}",
+                        "Rename error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                else
+                {
+                    sslStatus.Text = $"Renamed to USB-UIRT-{unitNumber}. Please unplug and reconnect the device.";
+                    MessageBox.Show(this,
+                        $"Device renamed to USB-UIRT-{unitNumber}.\n\n" +
+                        "Please UNPLUG your USB-UIRT and reconnect it for the change to take effect.\n\n" +
+                        "uurename.exe output:\n" + output,
+                        "Rename complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
 
                 RefreshDevices();
-
-                if (!okFriendly && !okDesc)
-                    MessageBox.Show(this, "Failed to set Friendly Name or Device Description. The driver may prevent changes.",
-                        "Rename failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                else
-                    sslStatus.Text = "Rename complete.";
-            }
-            catch (Win32Exception w32)
-            {
-                sslStatus.Text = $"Win32 error {w32.NativeErrorCode}";
-                MessageBox.Show(this, $"{w32.Message} (code {w32.NativeErrorCode})", "Win32 Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch (Exception ex)
             {
@@ -267,6 +263,72 @@ namespace UsbUirtRenamer
                 MessageBox.Show(this, ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally { Cursor = Cursors.Default; }
+        }
+
+        private static bool TryParseUnitNumber(string input, out int number)
+        {
+            number = 0;
+            input = input.Trim();
+
+            // Direct integer (e.g. "2")
+            if (int.TryParse(input, out number) && number > 0)
+                return true;
+
+            // "USB-UIRT-N", "USB-UIRT N", "USB-UIRTN"
+            var match = Regex.Match(input, @"USB-UIRT[\s\-]?(\d+)", RegexOptions.IgnoreCase);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out number) && number > 0)
+                return true;
+
+            return false;
+        }
+
+        private static string RunUurename(int unitNumber)
+        {
+            byte[] exeBytes = Properties.Resources.uurename
+                ?? throw new InvalidOperationException("uurename.exe resource not found.");
+
+            string tempPath = Path.Combine(Path.GetTempPath(), $"uurename_{Guid.NewGuid():N}.exe");
+            File.WriteAllBytes(tempPath, exeBytes);
+
+            try
+            {
+                var psi = new ProcessStartInfo(tempPath)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                using var proc = Process.Start(psi)
+                    ?? throw new InvalidOperationException("Failed to start uurename.exe.");
+
+                // Respond to interactive prompts:
+                // 1. "Would you like to rename this device [Y/N]?" -> Y
+                // 2. "Enter USB-UIRT Number:" -> the unit number
+                proc.StandardInput.WriteLine("Y");
+                proc.StandardInput.WriteLine(unitNumber.ToString());
+                proc.StandardInput.Close();
+
+                var outputTask = proc.StandardOutput.ReadToEndAsync();
+                var errorTask = proc.StandardError.ReadToEndAsync();
+
+                if (!proc.WaitForExit(30000))
+                {
+                    proc.Kill();
+                    throw new TimeoutException("uurename.exe did not complete within 30 seconds.");
+                }
+
+                string output = outputTask.Result;
+                string error = errorTask.Result;
+
+                return string.IsNullOrWhiteSpace(error) ? output : $"{output}\n{error}";
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
         }
 
         // ---------- Device ID helpers (VID/PID/Serial shown as "Device ID" column) ----------
@@ -878,5 +940,21 @@ namespace UsbUirtRenamer
         [DllImport("uuirtdrv.dll", CallingConvention = CallingConvention.StdCall, SetLastError = true, EntryPoint = "UUIRTEERead")]
         private static extern bool UUIRTEERead(IntPtr hUuirtdrv, IntPtr pBuffer, uint offset, uint length);
 
+        private void btnRename_Click(object sender, EventArgs e)
+        {
+            if (lvDevices.SelectedItems.Count == 0)
+                return;
+
+            var current = lvDevices.SelectedItems[0].SubItems[lvDevices.Columns.IndexOf(colFriendly)].Text;
+            int? currentUnit = UnitFromEvalishName(current);
+            string defaultVal = currentUnit?.ToString() ?? "";
+
+            string? newNumber = Prompt(
+                $"Current: {current}\n\nEnter new USB-UIRT unit number\n(device will be named USB-UIRT-N):",
+                defaultVal);
+
+            if (!string.IsNullOrWhiteSpace(newNumber))
+                RenameSelected(newNumber!);
+        }
     }
 }

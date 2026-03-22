@@ -225,7 +225,7 @@ namespace UsbUirtRenamer
             btnRename.TabIndex = 9;
             btnRename.Text = "Rename Selected";
             btnRename.UseVisualStyleBackColor = true;
-            btnRename.Click += BtnRename_Click;
+            btnRename.Click += btnRename_Click;
             // 
             // txtNewName
             // 

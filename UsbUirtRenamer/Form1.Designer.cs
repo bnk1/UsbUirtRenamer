@@ -89,10 +89,11 @@ namespace UsbUirtRenamer
             lvDevices.Margin = new Padding(5, 6, 5, 6);
             lvDevices.MultiSelect = false;
             lvDevices.Name = "lvDevices";
-            lvDevices.Size = new Size(1883, 1036);
+            lvDevices.Size = new Size(1883, 472);
             lvDevices.TabIndex = 10;
             lvDevices.UseCompatibleStateImageBehavior = false;
             lvDevices.View = View.Details;
+            lvDevices.SelectedIndexChanged += LvDevices_SelectedIndexChanged;
             lvDevices.DoubleClick += LvDevices_DoubleClick;
             // 
             // colIdx
@@ -260,7 +261,7 @@ namespace UsbUirtRenamer
             // 
             statusStrip.ImageScalingSize = new Size(28, 28);
             statusStrip.Items.AddRange(new ToolStripItem[] { sslStatus, sslAdmin });
-            statusStrip.Location = new Point(0, 1195);
+            statusStrip.Location = new Point(0, 618);
             statusStrip.Name = "statusStrip";
             statusStrip.Padding = new Padding(2, 0, 24, 0);
             statusStrip.Size = new Size(1927, 39);
@@ -295,7 +296,7 @@ namespace UsbUirtRenamer
             // 
             AutoScaleDimensions = new SizeF(12F, 30F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1927, 1234);
+            ClientSize = new Size(1927, 657);
             Controls.Add(BtnReadEeprom);
             Controls.Add(statusStrip);
             Controls.Add(btnElevate);
@@ -311,7 +312,7 @@ namespace UsbUirtRenamer
             Controls.Add(lblFilterName);
             Controls.Add(lvDevices);
             Margin = new Padding(5, 6, 5, 6);
-            MinimumSize = new Size(1526, 936);
+            MinimumSize = new Size(1526, 500);
             Name = "Form1";
             Text = "USB-UIRT Renamer";
             cmsList.ResumeLayout(false);

@@ -39,6 +39,19 @@ namespace UsbUirtRenamer
 
         private void BtnRefresh_Click(object? sender, EventArgs e) => RefreshDevices();
 
+        private void LvDevices_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            if (lvDevices.SelectedItems.Count == 0)
+            {
+                lblNewName.Text = "New name:";
+                return;
+            }
+
+            var selected = lvDevices.SelectedItems[0];
+            string displayName = selected.SubItems[lvDevices.Columns.IndexOf(colFriendly)].Text;
+            lblNewName.Text = $"Rename '{displayName}' to:";
+        }
+
         private void LvDevices_DoubleClick(object? sender, EventArgs e)
         {
             if (lvDevices.SelectedItems.Count == 0)
@@ -48,9 +61,8 @@ namespace UsbUirtRenamer
             int? currentUnit = UnitFromEvalishName(current);
             string defaultVal = currentUnit?.ToString() ?? "";
 
-            string? newNumber = Prompt(
-                $"Current: {current}\n\nEnter new USB-UIRT unit number\n(device will be named USB-UIRT-N):",
-                defaultVal);
+            string? newNumber = PromptForm.ShowPrompt(this,
+                $"Current: {current}\n\nEnter new USB-UIRT unit number\n(device will be named USB-UIRT-N):", defaultVal);
 
             if (!string.IsNullOrWhiteSpace(newNumber))
                 RenameSelected(newNumber!);
@@ -738,23 +750,7 @@ namespace UsbUirtRenamer
             return int.TryParse(s, System.Globalization.NumberStyles.HexNumber, null, out value);
         }
 
-        private static string? Prompt(string text, string defaultValue = "")
-        {
-            using var form = new Form() { Width = 520, Height = 160, Text = "Rename", StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
-            var lbl = new Label() { Left = 12, Top = 12, Width = 480, Text = text };
-            var tb = new TextBox() { Left = 12, Top = 40, Width = 480, Text = defaultValue };
-            var ok = new Button() { Text = "OK", Left = 326, Width = 80, Top = 80, DialogResult = DialogResult.OK };
-            var cancel = new Button() { Text = "Cancel", Left = 412, Width = 80, Top = 80, DialogResult = DialogResult.Cancel };
-            form.Controls.Add(lbl);
-            form.Controls.Add(tb);
-            form.Controls.Add(ok);
-            form.Controls.Add(cancel);
-            form.AcceptButton = ok;
-            form.CancelButton = cancel;
-            return form.ShowDialog() == DialogResult.OK ? tb.Text : null;
-        }
-
-        // Read 'length' bytes starting at offset 0 in small chunks to be nice to the driver
+        // Read 'length' bytes
         private static bool ReadEepromChunked(IntPtr h, byte[] buffer, uint length)
         {
             const int CHUNK = 64; // conservative chunk size
@@ -943,18 +939,22 @@ namespace UsbUirtRenamer
         private void btnRename_Click(object sender, EventArgs e)
         {
             if (lvDevices.SelectedItems.Count == 0)
+            {
+                MessageBox.Show(this, "Please select a device in the list first.",
+                    "No selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
+            }
 
-            var current = lvDevices.SelectedItems[0].SubItems[lvDevices.Columns.IndexOf(colFriendly)].Text;
-            int? currentUnit = UnitFromEvalishName(current);
-            string defaultVal = currentUnit?.ToString() ?? "";
+            string input = txtNewName.Text.Trim();
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                MessageBox.Show(this, "Enter a USB-UIRT unit number in the text box (e.g. '2' for USB-UIRT-2).",
+                    "Missing input", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                txtNewName.Focus();
+                return;
+            }
 
-            string? newNumber = Prompt(
-                $"Current: {current}\n\nEnter new USB-UIRT unit number\n(device will be named USB-UIRT-N):",
-                defaultVal);
-
-            if (!string.IsNullOrWhiteSpace(newNumber))
-                RenameSelected(newNumber!);
+            RenameSelected(input);
         }
     }
 }
